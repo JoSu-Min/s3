@@ -1,0 +1,2 @@
+jwt:
+  secretKey : abcd-test-1234
