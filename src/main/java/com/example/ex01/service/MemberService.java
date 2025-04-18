@@ -2,7 +2,10 @@ package com.example.ex01.service;
 
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.Bucket;
+import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.S3Object;
+import com.amazonaws.util.IOUtils;
 import com.example.ex01.domain.MemberEntity;
 import com.example.ex01.dto.MemberDTO;
 import com.example.ex01.repo.MemberDataSet;
@@ -17,10 +20,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Member;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,6 +47,7 @@ public class MemberService {
     MemberDataSet ds;
     private final MemberRepo repo;
     private final HttpSession session;
+    private final PasswordEncoder passwordEncoder;
 
     final String DIR = "uploads/";
 
@@ -58,6 +64,8 @@ public class MemberService {
                         file.getOriginalFilename();
             }
             dto.setFileName( fileName );
+            // 비밀번호 암호화
+            dto.setPassword(passwordEncoder.encode(dto.getPassword()));
             repo.save( new MemberEntity( dto ) ) ;
             result = 1;
             /*
@@ -100,28 +108,48 @@ public class MemberService {
                 .toList();
          */
     }
-    public int update(MemberDTO dto,String id){
-        /*
-         수정
-         사용자가 파일을 선택했다면, 기존 파일 삭제 후 새로운 파일 저장
-         선택하지 않았다면 기존파일 그냥 두면 됨
-         */
-
-        if(dto.getUsername() == null || dto.getPassword() == null ||
-                        dto.getRole() == null )
-            return -1;
-        //return ds.update(dto, id);
-        MemberEntity entity = repo.findByUsername( dto.getUsername() );
-        if( entity != null ){
-            //entity.setUsername();
-            entity.setPassword( dto.getPassword() );
-            entity.setRole( dto.getRole() );
-            repo.save( entity );
-            return 1;
+    public int update(MemberDTO dto, String id, MultipartFile file) {
+        if (dto.getUsername() == null || dto.getRole() == null) {
+            return -1; // 필수 정보가 없을 경우
         }
-        return 0;
+
+        MemberEntity entity = repo.findByUsername(id);
+        if (entity != null) {
+            // 비밀번호가 변경된 경우에만 암호화
+            if (dto.getPassword() != null && !dto.getPassword().isEmpty()) {
+                entity.setPassword(passwordEncoder.encode(dto.getPassword()));
+            }
+            entity.setUsername(dto.getUsername());
+            entity.setRole(dto.getRole());
+
+            // 파일이 제공된 경우
+            if (file != null && !file.isEmpty()) {
+                // 기존 파일 삭제
+                if (entity.getFileName() != null && !entity.getFileName().isEmpty()) {
+                    amazonS3.deleteObject(bucket, entity.getFileName());
+                }
+
+                // 새로운 파일 저장
+                String fileName = UUID.randomUUID().toString() + "-" + file.getOriginalFilename();
+                entity.setFileName(fileName); // 파일 이름 업데이트
+                ObjectMetadata metadata = new ObjectMetadata();
+                metadata.setContentType(file.getContentType());
+                metadata.setContentLength(file.getSize());
+
+                try {
+                    amazonS3.putObject(bucket, fileName, file.getInputStream(), metadata);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    return -2; // 파일 업로드 중 오류 발생
+                }
+            }
+
+            repo.save(entity); // 업데이트된 엔티티 저장
+            return 1; // 성공적으로 업데이트됨
+        }
+        return 0; // 사용자를 찾을 수 없음
     }
-    public int mDelete(String id, String fileName){
+/*    public int mDelete(String id, String fileName){
         //return ds.mDelete(id);
         MemberEntity entity = repo.findByUsername( id );
         if(entity != null){
@@ -129,6 +157,22 @@ public class MemberService {
             try{
                 Path path = Paths.get(DIR+fileName);
                 Files.deleteIfExists( path );
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return 1;
+        }
+        return 0;
+    } */
+
+   /* S3 BUCKET */
+    public int mDelete(String id, String fileName){
+        //return ds.mDelete(id);
+        MemberEntity entity = repo.findByUsername( id );
+        if(entity != null){
+            repo.delete( entity );
+            try{
+                amazonS3.deleteObject(bucket, fileName);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -143,7 +187,8 @@ public class MemberService {
         MemberEntity entity = repo.findByUsername(username);
         if( entity != null ){
             result = 1;
-            if(entity.getPassword().equals(password) ){
+            // 암호화된 비밀번호 비교
+            if(passwordEncoder.matches(password, entity.getPassword())){
                 result = 0;
                 map.put("token", JwtUtil.createJwt(username,
                                     secretKey, entity.getRole() ));
@@ -153,13 +198,14 @@ public class MemberService {
         return map;
     }
     public MemberDTO getOne( String username ){
-        //MemberDTO dto = null;
-        //dto = ds.getOne( username );
-        //return dto;
-        return new MemberDTO( repo.findByUsername(username) );
+        MemberEntity entity = repo.findByUsername(username);
+        if(entity == null) {
+            return new MemberDTO(); // 빈 DTO 객체 반환
+        }
+        return new MemberDTO(entity);
     }
 
-    public byte[] getImage(String fileName ){
+/*    public byte[] getImage(String fileName ){
         Path filePath = Paths.get(DIR+fileName);
         byte[] imageBytes = {0};
         try {
@@ -169,7 +215,21 @@ public class MemberService {
             e.printStackTrace();
         }
         return imageBytes;
+    } */
+
+    /* S3 BUCKET */
+    public byte[] getImage(String fileName ){
+        byte[] imageBytes = {0};
+        try {
+            // S3에서 파일 다운로드
+            S3Object s3Object = amazonS3.getObject(new GetObjectRequest(bucket, fileName));
+            imageBytes = IOUtils.toByteArray(s3Object.getObjectContent());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return imageBytes;
     }
+
 }
 
 

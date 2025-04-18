@@ -1,8 +1,8 @@
 jwt:
   secretKey : abcd-test-1234
 
-  s3:
-    access-key :
-    secret-key :
+s3:
+  access-key :
+  secret-key :
 
-    bucket:
+  bucket:

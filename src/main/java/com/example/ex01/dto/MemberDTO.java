@@ -9,16 +9,18 @@ import lombok.*;
 @AllArgsConstructor
 @ToString
 public class MemberDTO {
-    private String username;
-    private String password;
-    private String role;
-    private String fileName;
+    private String username = "";
+    private String password = "";
+    private String role = "";
+    private String fileName = "";
     //originFileName
     //changeFileName
     public MemberDTO(MemberEntity entity){
+        if(entity != null) {
         this.username = entity.getUsername();
         this.password = entity.getPassword();
         this.role = entity.getRole();
         this.fileName = entity.getFileName();
+        }
     }
 }

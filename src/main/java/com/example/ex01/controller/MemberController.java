@@ -85,18 +85,22 @@ public class MemberController {
     public ResponseEntity getList(@RequestParam(value="start", defaultValue = "0") int start ){
         return ResponseEntity.status(HttpStatus.OK).body( ms.getList(start) );
     }
+
     @PutMapping("/mem/{id}")
-    public ResponseEntity update1(@PathVariable("id") String id,
-                                  @RequestBody MemberDTO dto){
-        log.debug("id {}",id);
-        log.debug("dto {}",dto);
-        int result = ms.update(dto, id);
-        if(result == 1 )
-            return ResponseEntity.status(HttpStatus.OK).body("성공");
-        else if(result == 0 )
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("없음");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("필수");
+    public ResponseEntity updateMember(@PathVariable("id") String id,
+                                       @RequestParam(value = "file", required = false) MultipartFile file,
+                                       @RequestBody MemberDTO dto) {
+        log.info("Updating member with id: {}", id);
+        int result = ms.update(dto, id, file);
+        if (result == 1) {
+            return ResponseEntity.ok("회원 정보가 성공적으로 업데이트되었습니다.");
+        } else if (result == 0) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("사용자를 찾을 수 없습니다.");
+        } else {
+            return ResponseEntity.badRequest().body("필수 정보가 누락되었습니다.");
+        }
     }
+
     @DeleteMapping("/mem/{id}")
     public ResponseEntity mDelete(@PathVariable("id") String id,
                                   Authentication authentication,
@@ -108,6 +112,7 @@ public class MemberController {
             return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body("id없음");
     }
+
     @PostMapping("/mem/login2")
     public ResponseEntity login2(@RequestBody Map<String, String> map){//@RequestBody MemberDTO dto){
         /*
