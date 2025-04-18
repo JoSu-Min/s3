@@ -1,5 +1,8 @@
 package com.example.ex01.service;
 
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.model.Bucket;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.example.ex01.domain.MemberEntity;
 import com.example.ex01.dto.MemberDTO;
 import com.example.ex01.repo.MemberDataSet;
@@ -30,6 +33,11 @@ import java.util.*;
 public class MemberService {
     @Value("${jwt.secretKey}")
     private String secretKey;
+
+    @Value("${s3.bucket}")
+    private String bucket;
+    private final AmazonS3 amazonS3;
+
     @Autowired
     MemberDataSet ds;
     private final MemberRepo repo;
@@ -52,10 +60,19 @@ public class MemberService {
             dto.setFileName( fileName );
             repo.save( new MemberEntity( dto ) ) ;
             result = 1;
+            /*
             Path path = Paths.get(DIR + fileName);
             Files.createDirectories( path.getParent() );
             if( !file.isEmpty() )
                 file.transferTo( path );
+             */
+            if( !file.isEmpty() ){
+                ObjectMetadata metadata = new ObjectMetadata();
+                metadata.setContentType( file.getContentType() );
+                metadata.setContentLength( file.getSize() );
+                amazonS3.putObject(bucket, dto.getFileName(),
+                        file.getInputStream(), metadata );
+            }
 
         } catch (Exception e) {
             //throw new RuntimeException(e);
